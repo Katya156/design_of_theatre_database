@@ -203,3 +203,56 @@ create or replace view actors_and_directors as
 select portfolio.person_id, portfolio.surname, portfolio.name_patr, plays.play_name, plays.descr 
 from portfolio, directorship, plays
 where portfolio.person_id = directorship.director_id and directorship.play_id = plays.play_id;
+
+
+-- Права доступа администратора (admin) к отношению plays:
+grant select, insert, update, delete on plays to admin;
+
+-- Права доступа посетителей (роль viewer) к представлению portfolio_for_viewers могут быть описаны следующим образом: 
+grant select on portfolio_for_viewers to viewer;
+
+-- Права доступа менеджера (роль manager) к отношению tickets могут быть описаны следующим образом: 
+grant select on tickets to manager; 
+
+-- К отношению спектакли: 
+grant select update on plays to manager.
+	
+-- Права доступа художественного директора (роль director) к отношению amplua могут быть описаны следующим образом: 
+grant select, insert, update, delete on amplua to director;
+
+-- Права доступа экономиста (роль economist) к отношению jobs могут быть описаны следующим образом: 
+grant select input update on jobs to economist;
+
+
+-- Функция, которая позволяет выводить стоимость билетов на все представления для всех мест:
+
+create or replace function count_price() returns table(p_ numeric(4), s_ numeric(4), price numeric(6), play_name varchar(80), area char(10), hall char(10)) as $$
+	select places.place_id, shows.show_id, 100 * plays.coeff * areas.coeff, plays.play_name, areas.area, shows.hall 
+	from plays, areas, shows, places
+	where shows.play_id = plays.play_id and places.area = areas.area and places.hall = shows.hall
+	order by 1;
+$$ language sql;
+
+-- Триггер, который при добавлении представления будет автоматически добавлять билеты на это представление, а в билеты будет добавлять его стоимость, рассчитанную с помощью предыдущей функции:
+
+create or replace function add_tickets() returns trigger as $$
+	declare i numeric(4);
+	begin
+	for i in (select places.place_id from places where places.hall = new.hall) loop
+		insert into tickets (select p_, s_, price from count_price() where p_ = i and s_ = new.show_id);
+		end loop;
+		return new;
+	end;
+$$ language plpgsql;
+
+create or replace trigger add_tickets_trigger after
+insert on shows
+for each row
+execute procedure add_tickets();
+
+-- Индексы
+create index ind_pers_id on jobs(person_id);
+create index ind_show_id on tickets(show_id);
+create index ind_name on portfolio(surname, name_patr);
+
+
